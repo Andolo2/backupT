@@ -229,9 +229,9 @@ function GetSchoolData {
    
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-    $WorkingFolder = "C:\Users\AndreasOlofsson\Documents\TeisProjekt\Kholm_Revisioned"
-    $CertPath = ".\cert\2022-wildcard-katrineholm.se-PFX.pfx"
-    $CertPassword = "LtRlvuLliyUbzUmskw23TQ"
+    $WorkingFolder = ""
+    $CertPath = "."
+    $CertPassword = ""
     
     Set-Location $WorkingFolder
     
@@ -240,9 +240,9 @@ function GetSchoolData {
     $cert = Get-PfxCertificate $CertPath -Password $( ConvertTo-SecureString $CertPassword –AsPlainText -Force )
     
     
-    $identityServerUrl = "https://education.service.tieto.com/WE.Education.IdentityServer.Web"
-    $clientId = "e46b407b-42b5-4d12-960c-3b17eb27a815"
-    $clientSecret = "8dtmzNTJF_fhU4i3L4K-NPyUxIvKn77TrixSWtX9O6S8CSTXNIyjL4qynuaQ92wpqA"
+    $identityServerUrl = ""
+    $clientId = ""
+    $clientSecret = ""
     $scope = ""
     
     $tokenEndpoint = "$identityServerUrl/connect/token"
