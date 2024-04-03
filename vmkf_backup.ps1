@@ -1,0 +1,583 @@
+<#
+.SYNOPSIS
+This script defines several classes and functions to retrieve data related to locations, staff, classes, courses, roosters, and students.
+ 
+.DESCRIPTION
+The script contains the following classes:
+- Locations: Represents a location with properties like location ID and location name.
+- Roosters: Represents a rooster with properties like roster ID, class ID, and student ID.
+- Classes: Represents a class with properties like class ID, class number, course ID, instructor ID, and location ID.
+- Student: Represents a student with properties like person ID, person number, first name, last name, grade level, email address, and location ID.
+- Staff: Represents a staff member with properties like person ID, person number, first name, last name, email address, and location ID.
+- Courses: Represents a course with properties like course ID, course number, course name, and location ID.
+ 
+The script also defines several arrays and hashtables to store data.
+ 
+The script includes the following functions:
+- GetLocations: Retrieves locations data from the API and populates the global location dictionary.
+- GetStaff: Retrieves staff data from the API and populates the global staff dictionary.
+- GetClasses: Retrieves classes data from the API and populates the global class dictionary.
+- GetCourses: Retrieves courses data from the API and populates the global course dictionary.
+- GetRoosters: Retrieves roosters data from the API and populates the global rooster dictionary.
+- GetStudents: Retrieves students data from the API.
+ 
+
+.EXAMPLE
+.\Surahammar.ps1
+Runs the script and retrieves data from the API.
+ 
+.NOTES
+This script requires a separate file named "data.ps1" that contains credentials for accessing the API.
+#>
+
+
+
+<# RUN CREDS from separate file #>
+. ".\data.ps1"
+<# RUN CREDS from separate file #>
+
+
+$LogFilePath = "log.txt"
+
+function LogMessage {
+    param (
+        [string]$Message
+    )
+    $TimeStamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $LogMessage = "$TimeStamp - $Message"
+    Add-Content -Path $LogFilePath -Value $LogMessage
+}
+
+
+#region begin Classes based on 'https://support.apple.com/sv-se/guide/apple-school-manager/axm46d50f6bf/web'
+class Locations {
+    [string]$location_id
+    [string]$location_name
+}
+
+class Roosters {
+    [string]$roster_id
+    [string]$class_id
+    [string]$student_id
+}
+
+class Classes {
+    [string]$class_id
+    [string]$class_number
+    [string]$course_id
+    [string]$instructor_id
+    [string]$instructor_id_2
+    [string]$instructor_id_3
+    [string]$location_id
+}
+
+class Student {
+    [string]$person_id
+    [string]$person_number
+    [string]$first_name
+    [string]$middle_name
+    [string]$last_name
+    [string]$grade_level
+    [string]$email_address
+    [string]$sis_username
+    [string]$password_policy
+    [string]$location_id
+}
+
+
+class Staff {
+    [string]$person_id
+    [string]$person_number
+    [string]$first_name
+    [string]$middle_name
+    [string]$last_name
+    [string]$email_address
+    [string]$sis_username
+    [string]$location_id
+
+
+}
+
+class Courses {
+    [string] $course_id
+    [string] $course_number
+    [string] $course_name
+    [string]$location_id
+}
+
+#endregion
+
+#region begin block of neccessary Arrays
+
+
+$schoolTypes = @(
+    "FS", "FKLASS", "FTH", "OPPFTH", "GR", "GRS", "TR", "SP", "SAM", "GY",
+    "GYS", "VUX", "VUXSFI", "VUXGR", "VUXGY", "VUXSARGR", "VUXSARTR", "VUXSARGY",
+    "SFI", "SARVUX", "SARVUXGR", "SARVUXGY", "KU", "YH", "FHS", "STF", "KKU",
+    "HS", "ABU", "AU"
+)
+
+$Staff = @(
+    "Rektor",
+    "Lärare"
+    "Förskollärare",
+    "Barnskötare",
+    "Bibliotekarie",
+    "Lärarassistent",
+    "Fritidspedagog",
+    "Annan personal",
+    "Studie- och yrkesvägledare",
+    "Förstelärare",
+    "Kurator",
+    "Skolsköterska",
+    "Skolläkare",
+    "Skolpsykolog",
+    "Speciallärare/specialpedagog",
+    "Skoladministratör",
+    "Övrig arbetsledning",
+    "Övrig pedagogisk personal",
+    "Förskolechef"
+)
+
+<# $SchoolApps = @(
+    "hammarskolan",
+    "virsboskolan",
+    "starbacksskolan",
+    "tuppkarrsskolan",
+    "nytorpsskolan",
+    "backhammarskolan",
+    "bjornstugan",
+    "city",
+    "galaxen",
+    "larkan",
+    "skogsglantan",
+    "angsgarden",
+    "aventyret",
+    "asen",
+    "ugglan",
+    "lekochlar",
+    "nybyggfor",
+    "norrgarden",
+    "imenheten"
+)
+
+
+ #>
+
+
+#endregion
+
+$global:DateStart = (Get-Date).ToString("yyyy-01-01")
+$global:DateEnd = (Get-Date).ToString("yyyy-12-31")
+
+
+#region of hashtables
+$global:locationDictonary = [System.Collections.Hashtable]::new()
+$global:staffDictonary = [System.Collections.Hashtable]::new()
+$global:classDictonary = [System.Collections.Hashtable]::new()
+$global:roosterDictonary = [System.Collections.Hashtable]::new()
+$global:studentDictonary = [System.Collections.Hashtable]::new()
+$global:courseDictionary = [System.Collections.Hashtable]::new()
+#endregion
+
+function TestApiEndpoint { # If the API returns $null, exit the script and stop runtime. 
+    # Iterate through each school type provided in $schoolTypes array
+    foreach ($schoolType in $schoolTypes) {
+        try {
+            # Attempt to retrieve locations information via REST API
+            $getLocation = Invoke-RestMethod -Uri "$baseUri/organisations?type=Skolenhet&schoolTypes=$schoolType&expandReferenceNames=true" -Method GET -Headers $Headers
+            
+            # Check if the returned data is empty
+            if (-not $getLocation) {
+                Write-Host "Empty array returned for school type: $schoolType. Exiting..."
+                Exit 1
+            }
+        }
+        catch {
+            # If an error occurs during REST API call, catch the exception and output an error message
+            Write-Host "Error occurred in TestAPI: $($_.Exception.Message)"
+        }
+    }
+}
+
+#region of functions(for every used enpoint)
+function GetLocations {
+    # Iterate through each school type provided in $schoolTypes array
+    foreach ($schoolType in $schoolTypes) {
+        try {
+            # Attempt to retrieve locations information via REST API
+            $getLocation = Invoke-RestMethod -Uri "$baseUri/organisations?type=Skolenhet&schoolTypes=$schoolType&expandReferenceNames=true" -Method GET -Headers $Headers
+        }
+        catch {
+            # If an error occurs during REST API call, catch the exception and output an error message
+            Write-Host "error occurred in GetLocations: $($_.Exception.Message)"
+        }
+        try {
+            # Iterate through each location retrieved from the API response
+            $getLocation.data | ForEach-Object {
+                $location = [Locations]::new()  # Create a new instance of the Locations class
+                $location.location_id = $_.id   # Assign location ID
+                $location.location_name = $_.displayName  # Assign location name
+                    
+                $key = "$($_.id)"   # Generate a key using location ID
+                    
+                # Check if the location ID already exists in the global location dictionary
+                if ($global:locationDictonary.ContainsKey($key)) {
+                    # If a duplicate location ID is found, you can optionally handle it here
+                    # Write-Host 'Duplicate'
+                }
+                else {
+                    # If the location ID doesn't exist in the dictionary, add it along with its information
+                    $global:locationDictonary.Add($key, $location)
+                }
+            }
+        }
+        catch {
+            # If an error occurs during processing the retrieved data, log an error message
+            LogMessage "Error reading GetStaff "
+        }
+    }
+}
+
+
+function GetStaff {
+    # Iterate through each school unit in the global location dictionary
+    foreach ($schoolUnit in $global:locationDictonary.Keys) {
+        # Iterate through each role in the $Staff array
+        foreach ($role in $Staff) {
+            
+            try {
+                # Attempt to retrieve staff duty information via REST API
+                $GetStaffduty = Invoke-RestMethod -Uri "$baseUri/duties?organisation=$schoolUnit&dutyRole=$role&expand=person&expandReferenceNames=true" -Method GET -Headers $Headers
+            }
+            catch {
+                # If an error occurs during REST API call, the exception is caught (but not handled)
+                # Write-Host "error occurred in GetStaff: $($_.Exception.Message)"
+            }
+
+            try {
+                # Iterate through each staff duty retrieved from the API response
+                $GetStaffduty.data | ForEach-Object {
+                    $embeddedStaff = $_._embedded.person
+                    
+                    # Check if the staff member's status is 'Aktiv' (Active)
+                    if ($_._embedded.person.personStatus -eq 'Aktiv') {
+                        # Create a hashtable representing staff member information
+                        $staffObject = [Staff]@{
+                            person_id     = $_.id
+                            person_number = $embeddedStaff.civicNo.value
+                            first_name    = $embeddedStaff.givenName
+                            middle_name   = $embeddedStaff.middleName
+                            last_name     = $embeddedStaff.familyName
+                            email_address = $embeddedStaff.emails.value  
+                            sis_username  = $_.signature
+                            location_id   = if ($_.dutyAt.id -ne $null) { $_.dutyAt.id } else { "" }
+                        }
+                
+                        # Check if the staff member ID already exists in the global staff dictionary
+                        if (-not $global:staffDictonary.ContainsKey($staffObject.person_id)) {
+                            # If the staff member ID doesn't exist in the dictionary, add it along with its information
+                            $global:staffDictonary.Add($staffObject.person_id, $staffObject)
+                        }
+                    }
+                }
+            }
+            catch {
+                # If an error occurs during processing the retrieved data, log an error message
+                LogMessage "Error reading GetStaff "
+            }
+        }
+    } 
+}
+
+function GetClasses {
+    # Iterate through each organization (school) in the global location dictionary
+    foreach ($org in $global:locationDictonary.Keys) {
+        
+        try {
+            # Attempt to retrieve classes information via REST API
+            $getClasses = Invoke-RestMethod -Uri "$baseUri/activities?organisation=$org&expand=syllabus&expandReferenceNames=true" -Method GET -Headers $Headers
+        }
+        catch {
+            # If an error occurs during REST API call, catch the exception and output an error message
+            Write-Host "error occurred in GetClasses : $($_.Exception.Message)"
+        }
+    
+        try {
+            # Iterate through each class retrieved from the API response
+            $getClasses.data | ForEach-Object {
+                # Check if the activity type is 'Undervisning' (Teaching)
+                if ($_.activityType -eq 'Undervisning') {
+                
+                    # Create a new instance of the Classes class
+                    $classObject = [Classes]::new()
+                    # Generate a unique class ID combining group ID and display name
+                    $classObject.class_id = "$($_.groups[0].id)_$($_.displayName)"
+                    $classObject.class_number = $_._embedded.syllabus.subjectCode
+                    $classObject.course_id = $_.groups[0].id
+                    
+                    # Collect all teacher IDs from the JSON response
+                    $teacherIds = @()
+                    foreach ($teacher in $_.teachers) {
+                        $teacherIds += $teacher.duty.id
+                    }
+                    
+                    # Assign instructor IDs to the class object
+                    $classObject.instructor_id = $teacherIds[0]  # First teacher ID
+                    $classObject.instructor_id_2 = if ($teacherIds.Count -gt 1) { $teacherIds[1] } else { $null }  # Second teacher ID if available
+                    $classObject.instructor_id_3 = if ($teacherIds.Count -gt 2) { $teacherIds[2] } else { $null }  # Third teacher ID if available
+                    
+                    $classObject.location_id = $_.organisation.id
+                    
+                    # Check if the class ID already exists in the global class dictionary
+                    if (-not $global:classDictonary.ContainsKey("$($classObject.class_id)|$($_.displayName)")) {
+                        # If the class ID doesn't exist in the dictionary, add it along with its information
+                        $global:classDictonary["$($classObject.class_id)|$($_.displayName)"] = $classObject
+                    }
+                
+                }
+            }
+        }
+        catch {
+            # If an error occurs during processing the retrieved data, log an error message
+            LogMessage "Error reading GetClasses "
+        }
+    }
+}
+
+
+function GetCourses {
+    # Iterate through each organization (school) in the global location dictionary
+    foreach ($org in $global:locationDictonary.Keys) {
+        try {
+            # Attempt to retrieve courses information via REST API
+            $getCourses = Invoke-RestMethod -Uri "$baseUri/activities?organisation=$org&expand=syllabus&expandReferenceNames=true" -Method GET -Headers $Headers
+        }
+        catch {
+            # If an error occurs during REST API call, catch the exception and output an error message
+            Write-Host "Error occurred in GetCourses: $($_.Exception.Message)"
+        }
+        
+        try {
+            # Iterate through each course retrieved from the API response
+            $getCourses.data | ForEach-Object {
+                # Check if the activity type is 'Undervisning' (Teaching) and group ID is not null 
+                if ($_.activityType -eq 'Undervisning' -and $_.groups[0].id -ne $null) {
+                    # Create a new instance of the Courses class
+                    $courseObject = [Courses]::new()
+                    # Generate a unique course ID combining group ID, display name, and subject code
+                    $courseObject.course_id = "COURSE_$($_.groups[0].id)_$($_.displayName)"
+                    $courseObject.course_number = $_._embedded.syllabus.subjectCode
+                    $courseObject.course_name = $_.displayName
+                    $courseObject.location_id = $_.organisation.id
+                
+                    # Check if the course ID already exists in the global course dictionary
+                    if (-not $global:courseDictionary.ContainsKey("$($courseObject.course_id)|$($_._embedded.syllabus.subjectCode)")) {
+                        # If the course ID doesn't exist in the dictionary, add it along with its information
+                        $global:courseDictionary["$($courseObject.course_id)|$($_._embedded.syllabus.subjectCode)"] = $courseObject
+                    }   
+                }
+            }
+        }
+        catch {
+            # If an error occurs during processing the retrieved data, log an error message
+            LogMessage "Error reading GetCourses "
+        }
+    } 
+}
+
+
+
+function GetRoosters {
+    # Iterate through each school type provided in $schoolTypes array
+    foreach ($schoolType in $schoolTypes) {
+       
+        try {
+            # Attempt to retrieve roosters information via REST API
+            $GetRooster = Invoke-RestMethod -Uri "$baseUri/groups?groupType=Klass&schoolTypes=$schoolType&expand=assignmentRoles&expandReferenceNames=true" -Headers $Headers 
+        }
+        catch {
+            # If an error occurs during REST API call, catch the exception and output an error message
+            Write-Host "error occurred in GetRoosters : $($_.Exception.Message)"
+        }
+        
+        try {
+            # Iterate through each rooster retrieved from the API response
+            $GetRooster.data | ForEach-Object {
+                $id = $_.id
+                foreach ($membership in $_.groupMemberships) {
+                    $personId = $membership.person.id
+                    $roosterId = "$($id)_$($personId)"
+
+                    # Create a new instance of the Roosters class
+                    $roosterObject = [Roosters]::new()
+                    $roosterObject.roster_id = $roosterId
+                    $roosterObject.class_id = $id
+                    $roosterObject.student_id = $personId 
+
+                    # Check if the rooster ID already exists in the global rooster dictionary
+                    if (-not $global:roosterDictonary.ContainsKey($roosterId)) {
+                        # If the rooster ID doesn't exist in the dictionary, add it along with its information
+                        $global:roosterDictonary[$roosterId] = $roosterObject
+                    }
+                }
+            }
+        }
+        catch {
+            # If an error occurs during processing the retrieved data, log an error message
+            LogMessage "Error reading GetRoosters "
+        }
+    }
+}
+
+function GetStudents {
+    try {
+        # Attempt to retrieve students' information via REST API
+        $placementresponse = Invoke-RestMethod -Uri "$baseUri/persons?relationship.entity.type=enrolment&expand=&expandReferenceNames=true" -Method GET -Headers $Headers
+    }
+    catch {
+        # If an error occurs during REST API call, catch the exception and output an error message
+        Write-Host "error occurred in GetStudents: $($_.Exception.Message)"
+    }
+
+    try {
+        # Iterate through each student retrieved from the API response
+        $placementresponse.data | ForEach-Object {
+            $child = $_
+            $enrolments = $child.enrolments[0]
+        
+            # Create a hashtable representing student information
+            $student = [Student]@{
+                person_id       = $child.id
+                person_number   = $child.civicNo.value
+                first_name      = $child.givenName
+                middle_name     = $child.middleName
+                last_name       = $child.familyName
+                grade_level     = $enrolments.schoolType
+                sis_username    = ""
+                password_policy = ""
+                email_address   = $child.externalIdentifiers | Where-Object { $_.context -eq "googleacount" } | Select-Object -ExpandProperty value
+                location_id     = $enrolments.enroledAt.id
+            }
+        
+            # Check if the student ID already exists in the global student dictionary
+            if (-not $global:studentDictonary.ContainsKey($student.person_id)) {
+                # If the student ID doesn't exist in the dictionary, add it along with its information
+                $global:studentDictonary.Add($student.person_id, $student)
+            }
+        }
+    }
+    catch {
+        # If an error occurs during processing the retrieved data, log an error message
+        LogMessage "Error reading GetStudents "
+    }
+}
+
+
+
+#endregion
+
+<#
+.SYNOPSIS
+   Executes various functions related to retrieving information from a system using authentication token.
+.DESCRIPTION
+   This script executes multiple functions to retrieve information from a system, utilizing an authentication token provided.
+   Each function corresponds to a specific type of information retrieval such as locations, staff details, classes, rosters, students, and courses. 
+   The execution time of each function is measured using Stopwatch and displayed for monitoring purposes.
+   
+.PARAMETER Token
+    Specifies the authentication token required to access the system. 
+
+.EXAMPLE
+    Executes the script with the provided authentication token.
+.NOTES
+    Ensure the provided authentication token is valid and has appropriate permissions to access the system.
+.LINK
+    Specify a URI to a help page, this will show when Get-Help -Online is used.
+#>
+
+# Stopwatch | Checks running time of each function
+$stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+
+try {
+    LogMessage "Script execution started."
+    
+    try {
+        if ($Token) {
+            # Use token in Swagger to Auth.
+            $Headers.Add("Authorization", "Bearer $Token")
+            
+            # test API, if Enpoint retuns $null the script will exit.
+            TestApiEndpoint
+
+            # Stopwatch for GetLocations function
+            $stopwatchGetLocations = [System.Diagnostics.Stopwatch]::StartNew()
+            GetLocations # innehåller information om platser.
+            $stopwatchGetLocations.Stop()
+            Write-Host "GetLocations elapsed time: $($stopwatchGetLocations.Elapsed)"
+            
+            # Stopwatch for GetStaff function
+            $stopwatchGetStaff = [System.Diagnostics.Stopwatch]::StartNew()
+            GetStaff # Personal: Innehåller personalkontouppgifter, till exempel om lärare.
+            $stopwatchGetStaff.Stop()
+            Write-Host "GetStaff elapsed time: $($stopwatchGetStaff.Elapsed)"
+            
+            # Stopwatch for GetClasses function
+            $stopwatchGetClasses = [System.Diagnostics.Stopwatch]::StartNew()
+            GetClasses # Klasser: Innehåller information om kurser och lärare (personal)
+            $stopwatchGetClasses.Stop()
+            Write-Host "GetClasses elapsed time: $($stopwatchGetClasses.Elapsed)"
+            
+            # Stopwatch for GetRoosters function
+            $stopwatchGetRoosters = [System.Diagnostics.Stopwatch]::StartNew()
+            GetRoosters # innehåller information om klasser, studerande och platser.
+            $stopwatchGetRoosters.Stop()
+            Write-Host "GetRoosters elapsed time: $($stopwatchGetRoosters.Elapsed)"
+            
+            # Stopwatch for GetStudents function
+            $stopwatchGetStudents = [System.Diagnostics.Stopwatch]::StartNew()
+            GetStudents # Studerande: innehåller studerandes kontouppgifter.
+            $stopwatchGetStudents.Stop()
+            Write-Host "GetStudents elapsed time: $($stopwatchGetStudents.Elapsed)"
+            
+            # Stopwatch for GetCourses function
+            $stopwatchGetCourses = [System.Diagnostics.Stopwatch]::StartNew()
+            GetCourses
+            $stopwatchGetCourses.Stop()
+            Write-Host "GetCourses elapsed time: $($stopwatchGetCourses.Elapsed)"
+        }
+    
+    } 
+    catch {
+        
+        LogMessage "Error occurred: $($_.Exception.Message)"
+        exit 1
+        
+    }
+}
+catch {
+    LogMessage "Error occurred: $($_.Exception.Message)"
+    exit 1
+}
+finally {
+    LogMessage "Script finished, Total elapsed time: $($stopwatch.Elapsed)"
+}
+
+$stopwatch.Stop()
+
+
+
+Write-Host "Script is running for $($stopwatch.Elapsed) minutes."
+#endregion
+
+Write-Host "Locations : $($global:locationDictonary.Count)"
+Write-Host "Staff     : $($global:staffDictonary.Count)"
+Write-Host "Classes   : $($global:classDictonary.Count)"
+Write-Host "Roosters  : $($global:roosterDictonary.Count)"
+Write-Host "Students  : $($global:studentDictonary.Count)"
+Write-Host "Courses   : $($global:courseDictionary.Count)"
+
+$global:locationDictonary.Values | Export-Csv -Encoding utf8BOM -Delimiter ";" -Path "$WorkingFolder\New_Locations.csv" -NoTypeInformation -Force
+$global:staffDictonary.Values | Export-Csv -Encoding utf8BOM -Delimiter ";" -Path "$WorkingFolder\New_Staff.csv" -NoTypeInformation -Force
+$global:classDictonary.Values | Export-Csv -Encoding utf8BOM -Delimiter ";" -Path "$WorkingFolder\New_Classes.csv" -NoTypeInformation -Force
+$global:roosterDictonary.Values | Export-Csv -Encoding utf8BOM -Delimiter ";" -Path "$WorkingFolder\New_Rooster.csv" -NoTypeInformation -Force
